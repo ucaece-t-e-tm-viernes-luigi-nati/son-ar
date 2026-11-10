@@ -14,20 +14,28 @@ import { createCredentialUser, findUserByEmail, normalizeEmail, randomToken, set
 
 const GENERIC = 'Correo o contraseña incorrectos.'
 
-/** Login del superadmin: email en SUPERADMIN_EMAILS + cuenta verificada + contraseña correcta. */
+/** Admin del equipo creado desde /plataforma/equipo (rol 'admin'). */
+async function isTeamAdminEmail(email: string) {
+  const user = await findUserByEmail(email)
+  return !!user && user.role === 'admin'
+}
+
+/** Login de la plataforma: superadmin principal (SUPERADMIN_EMAILS) o admin del equipo, con cuenta verificada. */
 export async function superadminSignIn(_: FormState, formData: FormData): Promise<FormState> {
   const email = normalizeEmail(formData.get('email'))
   const password = String(formData.get('password') ?? '')
-  if (!isSuperadminEmail(email) || !password) return { error: GENERIC }
+  if (!password) return { error: GENERIC }
+  const root = isSuperadminEmail(email)
   const user = await findUserByEmail(email)
   if (!user || !user.emailVerified) return { error: GENERIC }
+  if (!root && user.role !== 'admin') return { error: GENERIC }
   try {
     await auth.api.signInEmail({ body: { email, password }, headers: await headers() })
   } catch {
     return { error: GENERIC }
   }
   // Bootstrap: si el email está en SUPERADMIN_EMAILS y la cuenta está verificada, tiene rol superadmin.
-  if (user.role !== 'superadmin') {
+  if (root && user.role !== 'superadmin') {
     await q(`UPDATE "user" SET role = 'superadmin' WHERE id = $1`, [user.id])
     await audit({ id: user.id, role: 'superadmin' }, 'superadmin.bootstrap', { entity: 'user', entityId: user.id })
   }
@@ -41,7 +49,7 @@ export async function superadminSignIn(_: FormState, formData: FormData): Promis
 export async function requestSuperadminSetup(_: FormState, formData: FormData): Promise<FormState> {
   const email = normalizeEmail(formData.get('email'))
   const answer = { ok: true, message: 'Si el correo está habilitado, te enviamos un link para definir tu contraseña. Revisá tu bandeja (y spam).' }
-  if (!isSuperadminEmail(email)) return answer
+  if (!isSuperadminEmail(email) && !(await isTeamAdminEmail(email))) return answer
 
   const identifier = `superadmin-setup:${email}`
   const recent = await q1(`SELECT 1 FROM verification WHERE identifier = $1 AND "createdAt" > now() - interval '2 minutes'`, [identifier])
@@ -72,11 +80,18 @@ export async function completeSuperadminSetup(token: string, _: FormState, formD
     [sha256(String(token ?? ''))],
   )
   const email = row?.identifier.slice('superadmin-setup:'.length) ?? ''
-  if (!row || !isSuperadminEmail(email)) return { error: 'El link venció o ya se usó. Pedí uno nuevo.' }
+  const root = isSuperadminEmail(email)
+  if (!row || (!root && !(await isTeamAdminEmail(email)))) return { error: 'El link venció o ya se usó. Pedí uno nuevo.' }
 
   const userId = await tx(async (db) => {
     await db.query(`DELETE FROM verification WHERE identifier = $1`, [row.identifier])
     const existing = await findUserByEmail(email, db)
+    if (existing && !root) {
+      // Admin del equipo: define su contraseña y queda verificado; el rol no cambia.
+      await setUserPassword(db, existing.id, password)
+      await db.query(`UPDATE "user" SET "emailVerified" = true WHERE id = $1`, [existing.id])
+      return existing.id
+    }
     if (existing) {
       await setUserPassword(db, existing.id, password)
       await db.query(`UPDATE "user" SET role = 'superadmin', "emailVerified" = true WHERE id = $1`, [existing.id])
@@ -84,7 +99,7 @@ export async function completeSuperadminSetup(token: string, _: FormState, formD
     }
     return createCredentialUser(db, { email, name: 'Equipo Son.ar', password, role: 'superadmin', emailVerified: true })
   })
-  await audit({ id: userId, role: 'superadmin' }, 'superadmin.password_set', { entity: 'user', entityId: userId })
+  await audit({ id: userId, role: root ? 'superadmin' : 'admin' }, 'superadmin.password_set', { entity: 'user', entityId: userId })
 
   try {
     await auth.api.signInEmail({ body: { email, password }, headers: await headers() })

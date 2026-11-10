@@ -47,7 +47,7 @@ export async function findUserByEmail(email: string, db: Db = pool) {
  */
 export async function createCredentialUser(
   db: Db,
-  opts: { email: string; name: string; password: string; role?: 'member' | 'superadmin'; temporary?: boolean; emailVerified?: boolean },
+  opts: { email: string; name: string; password: string; role?: 'member' | 'admin' | 'superadmin'; temporary?: boolean; emailVerified?: boolean },
 ) {
   const id = randomUUID()
   const hash = await hashPassword(opts.password)

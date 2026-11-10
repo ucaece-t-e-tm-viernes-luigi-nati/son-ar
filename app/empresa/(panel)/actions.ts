@@ -112,7 +112,7 @@ export async function inviteMember(_: FormState, fd: FormData): Promise<FormStat
 
   const existing = await findUserByEmail(email)
   if (existing) {
-    if (existing.role === 'superadmin') return { error: 'Ese correo no se puede sumar al equipo.' }
+    if (existing.role === 'superadmin' || existing.role === 'admin') return { error: 'Ese correo no se puede sumar al equipo.' }
     const already = await q1(`SELECT 1 FROM client_member WHERE client_id = $1 AND user_id = $2`, [ctx.clientId, existing.id])
     if (already) return { error: 'Esa persona ya forma parte del equipo.' }
   }

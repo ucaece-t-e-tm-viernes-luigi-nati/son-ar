@@ -209,4 +209,13 @@ export const mails = {
       'Si no fuiste vos, ignorá este mail.',
     ])
   },
+  adminInvite(p: { name: string; invitedBy: string; email: string; link: string; hours: number }) {
+    return render('admin_invite', `Te sumaron al equipo de ${STARTUP}`, [
+      `Hola ${esc(p.name)}, ${esc(p.invitedBy)} te dio acceso de administrador a la plataforma de ${STARTUP}: vas a poder revisar solicitudes de venues, aprobarlas, gestionar planes, pagos, cuentas y ver las métricas.`,
+      ['list', [['Usuario', p.email]]],
+      `Para entrar, definí tu contraseña con este link (vence en ${p.hours} horas, un solo uso):`,
+      ['link', 'Definir mi contraseña', p.link],
+      'Después vas a entrar siempre desde la misma dirección de la plataforma con tu email y tu contraseña. Si el link vence, usá "Primer ingreso / olvidé mi contraseña" en la pantalla de login.',
+    ])
+  },
 }

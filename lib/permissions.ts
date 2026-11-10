@@ -1,7 +1,7 @@
 // Matriz de permisos de Son.ar. ÚNICO lugar donde se define quién puede qué.
 // Se chequea SIEMPRE en el servidor (lib/guards.ts), en páginas, server actions y route handlers.
 
-export type PlatformRole = 'superadmin' | 'member'
+export type PlatformRole = 'superadmin' | 'admin' | 'member'
 export type VenueRole = 'owner' | 'staff'
 
 // ---------- Superficie pública: músicos y bandas (/app) ----------
@@ -63,7 +63,19 @@ export function isReadOnlyStatus(status: string) {
 }
 
 // ---------- Superficie del equipo (/plataforma) ----------
-/** Superadmin: rol en la base + email en SUPERADMIN_EMAILS + email verificado. Las tres cosas. */
-export function isSuperadmin(user: { role: string; email: string; emailVerified: boolean } | null, allowedEmails: string[]) {
+// Dos niveles, con las MISMAS funciones en /plataforma:
+// - superadmin principal: rol 'superadmin' + email en SUPERADMIN_EMAILS (env). Nadie lo puede quitar desde el panel.
+// - admin del equipo: rol 'admin', creado desde /plataforma/equipo por otro superadmin o admin. Se puede quitar.
+type PlatformUser = { role: string; email: string; emailVerified: boolean } | null
+
+/** Superadmin principal: rol en la base + email en SUPERADMIN_EMAILS + email verificado. Las tres cosas. */
+export function isRootSuperadmin(user: PlatformUser, allowedEmails: string[]) {
   return !!user && user.role === 'superadmin' && user.emailVerified && allowedEmails.includes(user.email.toLowerCase())
 }
+
+/** Acceso a /plataforma: superadmin principal o admin del equipo con email verificado. */
+export function isSuperadmin(user: PlatformUser, allowedEmails: string[]) {
+  return isRootSuperadmin(user, allowedEmails) || (!!user && user.role === 'admin' && user.emailVerified)
+}
+
+export const PLATFORM_ROLES = ['superadmin', 'admin'] as const

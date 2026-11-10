@@ -1,5 +1,6 @@
 'use server'
 
+import { randomUUID } from 'node:crypto'
 import { redirect } from 'next/navigation'
 import { refresh } from 'next/cache'
 import type { FormState } from '@/components/forms'
@@ -7,14 +8,14 @@ import { audit } from '@/lib/audit'
 import { q, q1, tx } from '@/lib/db'
 import { addDays, dayKeyAR, formatDate, formatDateTime, formatMoney, nextDueAfter } from '@/lib/dates'
 import type { AccountStatus } from '@/lib/domain/types'
-import { appUrl, isSuperadminEmail } from '@/lib/env'
+import { appUrl, isSuperadminEmail, superadminEmails } from '@/lib/env'
 import { requireSuperadmin } from '@/lib/guards'
 import { sendMail } from '@/lib/mail'
 import { mails } from '@/lib/mail-templates'
 import type { Application } from '@/lib/onboarding'
 import { profileRepo } from '@/lib/repositories'
 import { STATUS_LABELS } from '@/components/panel/ui'
-import { createCredentialUser, findUserByEmail, generateTempPassword, isValidEmail, normalizeEmail, randomToken, setUserPassword, TEMP_PASSWORD_HOURS } from '@/lib/users'
+import { createCredentialUser, findUserByEmail, generateTempPassword, isValidEmail, normalizeEmail, randomToken, setUserPassword, sha256, TEMP_PASSWORD_HOURS } from '@/lib/users'
 
 // Cada action vuelve a verificar que quien llama es superadmin (requireSuperadmin → 404 si no).
 
@@ -362,5 +363,80 @@ export async function setAccountStatus(profileId: string, status: AccountStatus)
     entityId: profileId,
     detail: { name: row.name, from: row.prev, to: status },
   })
+  refresh()
+}
+
+
+// ---------------- Equipo de la plataforma (admins) ----------------
+// El superadmin principal (SUPERADMIN_EMAILS) no se puede quitar desde acá: tiene rol 'superadmin'
+// y estas acciones solo tocan usuarios con rol 'admin'. Nadie puede quitarse a sí mismo.
+
+const ADMIN_LINK_HOURS = 72
+
+async function sendAdminLink(admin: { email: string; name: string }, invitedBy: string) {
+  const email = normalizeEmail(admin.email)
+  const identifier = `superadmin-setup:${email}`
+  const token = randomToken(24)
+  await q(`DELETE FROM verification WHERE identifier = $1`, [identifier])
+  await q(
+    `INSERT INTO verification (id, identifier, value, "expiresAt") VALUES ($1, $2, $3, now() + make_interval(hours => $4::int))`,
+    [randomUUID(), identifier, sha256(token), ADMIN_LINK_HOURS],
+  )
+  const link = `${appUrl()}/plataforma/ingresar/clave?token=${token}`
+  await sendMail({ to: email, ...mails.adminInvite({ name: admin.name, invitedBy, email, link, hours: ADMIN_LINK_HOURS }), secrets: [token] })
+}
+
+export async function createAdmin(_: FormState, fd: FormData): Promise<FormState> {
+  const me = await requireSuperadmin()
+  const name = str(fd, 'name', 80)
+  const email = normalizeEmail(fd.get('email'))
+  if (name.length < 2) return { error: 'Escribí el nombre.' }
+  if (!isValidEmail(email)) return { error: 'Revisá el email.' }
+  if (isSuperadminEmail(email)) return { error: 'Ese correo ya es el superadmin principal.' }
+
+  const existing = await findUserByEmail(email)
+  let userId: string
+  if (existing) {
+    if (existing.role === 'admin' || existing.role === 'superadmin') return { error: 'Esa persona ya es parte del equipo.' }
+    const venue = await q1(`SELECT 1 FROM client_member WHERE user_id = $1`, [existing.id])
+    if (venue) return { error: 'Ese correo pertenece a un venue. Usá otro correo para el acceso de administrador.' }
+    await q(`UPDATE "user" SET role = 'admin', "updatedAt" = now() WHERE id = $1`, [existing.id])
+    userId = existing.id
+  } else {
+    // Contraseña aleatoria que nadie conoce: la persona define la suya con el link del mail.
+    userId = await tx((db) => createCredentialUser(db, { email, name, password: randomToken(24), role: 'admin', emailVerified: false }))
+  }
+  await audit(actor(me), 'admin.create', { entity: 'user', entityId: userId, detail: { email, name } })
+  try {
+    await sendAdminLink({ email, name: existing?.name || name }, me.name || me.email)
+  } catch {
+    refresh()
+    return { ok: true, message: `Admin creado, pero el mail no salió. Probá "Reenviar link" en la lista.` }
+  }
+  refresh()
+  return { ok: true, message: `Listo: le mandamos a ${email} el link para definir su contraseña.` }
+}
+
+export async function resendAdminLink(userId: string) {
+  const me = await requireSuperadmin()
+  const target = await q1<{ email: string; name: string; role: string }>(`SELECT email, name, role FROM "user" WHERE id = $1`, [userId])
+  if (!target || target.role !== 'admin') return
+  await sendAdminLink(target, me.name || me.email)
+  await audit(actor(me), 'admin.resend_link', { entity: 'user', entityId: userId })
+  refresh()
+}
+
+export async function removeAdmin(userId: string) {
+  const me = await requireSuperadmin()
+  if (userId === me.id) return
+  const target = await q1<{ email: string; role: string }>(`SELECT email, role FROM "user" WHERE id = $1`, [userId])
+  // Solo se quitan admins del equipo: el superadmin principal (rol 'superadmin', en SUPERADMIN_EMAILS) es intocable.
+  if (!target || target.role !== 'admin' || superadminEmails().includes(target.email.toLowerCase())) return
+  await tx(async (db) => {
+    await db.query(`UPDATE "user" SET role = 'member', "updatedAt" = now() WHERE id = $1`, [userId])
+    await db.query(`DELETE FROM session WHERE "userId" = $1`, [userId])
+    await db.query(`DELETE FROM verification WHERE identifier = $1`, [`superadmin-setup:${target.email.toLowerCase()}`])
+  })
+  await audit(actor(me), 'admin.remove', { entity: 'user', entityId: userId, detail: { email: target.email } })
   refresh()
 }

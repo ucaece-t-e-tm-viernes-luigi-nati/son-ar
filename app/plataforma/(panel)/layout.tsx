@@ -16,6 +16,7 @@ const links = [
   { href: '/plataforma/invitaciones', label: 'Invitaciones' },
   { href: '/plataforma/planes', label: 'Planes' },
   { href: '/plataforma/mails', label: 'Mails' },
+  { href: '/plataforma/equipo', label: 'Equipo' },
   { href: '/plataforma/auditoria', label: 'Auditoría' },
 ]
 

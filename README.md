@@ -113,5 +113,6 @@ npm run dev                  # http://localhost:3000
 2. El build (`npm run build`) corre `scripts/migrate.mjs` antes de `next build`, así el esquema de Neon queda siempre al día.
 3. Cargar en Vercel las variables de `.env.example`. El cron diario está definido en `vercel.json` y usa `CRON_SECRET`.
 4. Primer acceso del equipo: entrar a la plataforma con un email de `SUPERADMIN_EMAILS` y usar "Primer ingreso" para recibir el link de contraseña.
+5. Sumar más gente al equipo: en la plataforma → **Equipo** → "Sumar un admin" (nombre + email). Le llega un mail con un link para definir su contraseña (72 h). Los admins tienen las mismas funciones que el superadmin principal (incluido sumar o quitar otros admins), pero el superadmin principal de `SUPERADMIN_EMAILS` no se puede quitar y nadie puede quitarse a sí mismo.
 
 > Demo académica con datos de ejemplo, sin fines comerciales. **Nunca** se suben claves al repo: es público.
