@@ -1,42 +1,25 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
+# dependencias
 /node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
-
-# testing
-/coverage
 
 # next.js
 /.next/
 /out/
-
-# production
 /build
+*.tsbuildinfo
+next-env.d.ts
 
-# misc
+# varios
 .DS_Store
 *.pem
-
-# debug
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# variables de entorno (nunca subirlas). Solo se versiona .env.example
 .env*
+!.env.example
 
 # vercel
 .vercel
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-!.env.example
+# dependencias de la referencia v2.1 (si alguien la instala)
+/referencia-v2.1/node_modules
+/referencia-v2.1/.next
